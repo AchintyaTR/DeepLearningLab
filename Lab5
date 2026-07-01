@@ -1,0 +1,665 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/AchintyaTR/DeepLearningLab/blob/main/Lab5\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "IsNdrkoH5NPs"
+      },
+      "source": [
+        "# Lab Activity 5: CNN Lab (CIFAR-10)\n",
+        "**Amrita School of Computing, Chennai**\n",
+        "\n",
+        "This notebook implements the CNN described in Part 1 of the worksheet, trains it on the CIFAR-10 dataset, and contains worked code for Part 2, Part 3 and Part 4 of the activity sheet."
+      ],
+      "id": "IsNdrkoH5NPs"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 1,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "O3nXtpe15NPt",
+        "outputId": "be5920be-a291-4748-97bb-3279f3c9ecef"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Using device: cpu\n"
+          ]
+        }
+      ],
+      "source": [
+        "import math\n",
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "import torch.nn.functional as F\n",
+        "import torch.optim as optim\n",
+        "import torchvision\n",
+        "import torchvision.transforms as transforms\n",
+        "from torch.utils.data import DataLoader\n",
+        "\n",
+        "device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
+        "print('Using device:', device)"
+      ],
+      "id": "O3nXtpe15NPt"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "pBZ3tO-b5NPw"
+      },
+      "source": [
+        "## Part 1: Model Definition\n",
+        "\n",
+        "CNN architecture:\n",
+        "- Input: 32x32x3 (RGB image, CIFAR-10)\n",
+        "- 2 Convolutional layers: 3x3 kernels, 'same' padding\n",
+        "- 2 Pooling layers: 2x2 Max Pooling, stride 2\n",
+        "- 2 Dense layers: one hidden layer + one output layer (10 classes)"
+      ],
+      "id": "pBZ3tO-b5NPw"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 2,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "vvyTOLzI5NPw",
+        "outputId": "f0096836-bd36-48ef-8e70-251514a2d3da"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "SimpleCNN(\n",
+            "  (conv1): Conv2d(3, 32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))\n",
+            "  (pool1): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)\n",
+            "  (conv2): Conv2d(32, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))\n",
+            "  (pool2): MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)\n",
+            "  (fc1): Linear(in_features=4096, out_features=128, bias=True)\n",
+            "  (fc2): Linear(in_features=128, out_features=10, bias=True)\n",
+            ")\n"
+          ]
+        }
+      ],
+      "source": [
+        "class SimpleCNN(nn.Module):\n",
+        "    def __init__(self, num_classes=10):\n",
+        "        super(SimpleCNN, self).__init__()\n",
+        "        # Conv Layer 1: 3x3 kernel, 'same' padding -> padding=1, 32 filters\n",
+        "        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1)\n",
+        "        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)\n",
+        "\n",
+        "        # Conv Layer 2: 3x3 kernel, 'same' padding -> padding=1, 64 filters\n",
+        "        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)\n",
+        "        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)\n",
+        "\n",
+        "        # After two 2x2/stride-2 pools: 32 -> 16 -> 8, so feature map is 8x8 with 64 channels\n",
+        "        self.flatten_dim = 64 * 8 * 8\n",
+        "\n",
+        "        # Dense layers: one hidden layer + one output layer (10 classes)\n",
+        "        self.fc1 = nn.Linear(self.flatten_dim, 128)\n",
+        "        self.fc2 = nn.Linear(128, num_classes)\n",
+        "\n",
+        "    def forward(self, x):\n",
+        "        x = self.pool1(F.relu(self.conv1(x)))   # (B, 32, 16, 16)\n",
+        "        x = self.pool2(F.relu(self.conv2(x)))   # (B, 64, 8, 8)\n",
+        "        x = torch.flatten(x, 1)                 # (B, 4096)\n",
+        "        x = F.relu(self.fc1(x))                 # (B, 128)\n",
+        "        x = self.fc2(x)                          # (B, 10)\n",
+        "        return x\n",
+        "\n",
+        "model = SimpleCNN().to(device)\n",
+        "print(model)"
+      ],
+      "id": "vvyTOLzI5NPw"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "ZeitzNIy5NPx"
+      },
+      "source": [
+        "## Part 2: Dimension Tracking\n",
+        "\n",
+        "Run a dummy batch through the model layer-by-layer and print the tensor shape after every operation (Batch size = 32)."
+      ],
+      "id": "ZeitzNIy5NPx"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 3,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "wfyJgOBg5NPx",
+        "outputId": "bb8bee73-51f0-4af2-9423-4341cbb7de4d"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Input Image:             (32, 3, 32, 32)\n",
+            "Conv Layer 1 output:     (32, 32, 32, 32)\n",
+            "Max Pool 1 output:       (32, 32, 16, 16)\n",
+            "Conv Layer 2 output:     (32, 64, 16, 16)\n",
+            "Max Pool 2 output:       (32, 64, 8, 8)\n",
+            "Flatten Layer output:    (32, 4096)\n"
+          ]
+        }
+      ],
+      "source": [
+        "x = torch.randn(32, 3, 32, 32).to(device)\n",
+        "print('Input Image:            ', tuple(x.shape))\n",
+        "\n",
+        "x1 = F.relu(model.conv1(x))\n",
+        "print('Conv Layer 1 output:    ', tuple(x1.shape))\n",
+        "\n",
+        "x1p = model.pool1(x1)\n",
+        "print('Max Pool 1 output:      ', tuple(x1p.shape))\n",
+        "\n",
+        "x2 = F.relu(model.conv2(x1p))\n",
+        "print('Conv Layer 2 output:    ', tuple(x2.shape))\n",
+        "\n",
+        "x2p = model.pool2(x2)\n",
+        "print('Max Pool 2 output:      ', tuple(x2p.shape))\n",
+        "\n",
+        "xf = torch.flatten(x2p, 1)\n",
+        "print('Flatten Layer output:   ', tuple(xf.shape))"
+      ],
+      "id": "wfyJgOBg5NPx"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "VdhlJw5u5NPx"
+      },
+      "source": [
+        "## Load CIFAR-10 dataset (from local path, no download) and train the model"
+      ],
+      "id": "VdhlJw5u5NPx"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 4,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "MMyqgTS15NPy",
+        "outputId": "bd362a65-a333-427f-b3dc-b931875854eb"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Train size: 50000 | Test size: 10000 | Classes: ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']\n"
+          ]
+        }
+      ],
+      "source": [
+        "# Your batch files (batches.meta, data_batch_1..5, test_batch) sit directly in\n",
+        "# /content/sample_data -- there is no 'cifar-10-batches-py' wrapper folder, so\n",
+        "# torchvision.datasets.CIFAR10 (which requires that wrapper) won't find them.\n",
+        "# This custom Dataset reads the pickled batch files directly from that path.\n",
+        "import os\n",
+        "import pickle\n",
+        "import numpy as np\n",
+        "from PIL import Image\n",
+        "from torch.utils.data import Dataset\n",
+        "\n",
+        "data_root = '/content/sample_data'\n",
+        "\n",
+        "class CIFAR10Local(Dataset):\n",
+        "    def __init__(self, root, train=True, transform=None):\n",
+        "        self.root = root\n",
+        "        self.transform = transform\n",
+        "        if train:\n",
+        "            batch_files = [f'data_batch_{i}' for i in range(1, 6)]\n",
+        "        else:\n",
+        "            batch_files = ['test_batch']\n",
+        "\n",
+        "        images, labels = [], []\n",
+        "        for bf in batch_files:\n",
+        "            path = os.path.join(root, bf)\n",
+        "            with open(path, 'rb') as f:\n",
+        "                entry = pickle.load(f, encoding='latin1')\n",
+        "            images.append(entry['data'])\n",
+        "            labels.extend(entry['labels'] if 'labels' in entry else entry['fine_labels'])\n",
+        "\n",
+        "        self.data = np.vstack(images).reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)  # NHWC, uint8\n",
+        "        self.targets = labels\n",
+        "\n",
+        "        meta_path = os.path.join(root, 'batches.meta')\n",
+        "        with open(meta_path, 'rb') as f:\n",
+        "            meta = pickle.load(f, encoding='latin1')\n",
+        "        self.classes = meta['label_names']\n",
+        "\n",
+        "    def __len__(self):\n",
+        "        return len(self.data)\n",
+        "\n",
+        "    def __getitem__(self, idx):\n",
+        "        img = Image.fromarray(self.data[idx])\n",
+        "        label = self.targets[idx]\n",
+        "        if self.transform:\n",
+        "            img = self.transform(img)\n",
+        "        return img, label\n",
+        "\n",
+        "# Data augmentation (see Part 3, Q2) + normalization\n",
+        "transform_train = transforms.Compose([\n",
+        "    transforms.RandomCrop(32, padding=4),\n",
+        "    transforms.RandomHorizontalFlip(),\n",
+        "    transforms.ToTensor(),\n",
+        "    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),\n",
+        "])\n",
+        "\n",
+        "transform_test = transforms.Compose([\n",
+        "    transforms.ToTensor(),\n",
+        "    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),\n",
+        "])\n",
+        "\n",
+        "train_set = CIFAR10Local(root=data_root, train=True, transform=transform_train)\n",
+        "test_set = CIFAR10Local(root=data_root, train=False, transform=transform_test)\n",
+        "\n",
+        "train_loader = DataLoader(train_set, batch_size=32, shuffle=True, num_workers=2)\n",
+        "test_loader = DataLoader(test_set, batch_size=32, shuffle=False, num_workers=2)\n",
+        "\n",
+        "classes = train_set.classes\n",
+        "print('Train size:', len(train_set), '| Test size:', len(test_set), '| Classes:', classes)"
+      ],
+      "id": "MMyqgTS15NPy"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 5,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "C7X7qm9l5NPy",
+        "outputId": "f3b14394-5c9c-4225-de9c-837dd0cb223d"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Epoch 1/10  Loss: 1.4732\n",
+            "Epoch 2/10  Loss: 1.1434\n",
+            "Epoch 3/10  Loss: 1.0144\n",
+            "Epoch 4/10  Loss: 0.9382\n",
+            "Epoch 5/10  Loss: 0.8889\n",
+            "Epoch 6/10  Loss: 0.8558\n",
+            "Epoch 7/10  Loss: 0.8148\n",
+            "Epoch 8/10  Loss: 0.7973\n",
+            "Epoch 9/10  Loss: 0.7708\n",
+            "Epoch 10/10  Loss: 0.7550\n"
+          ]
+        }
+      ],
+      "source": [
+        "criterion = nn.CrossEntropyLoss()\n",
+        "optimizer = optim.Adam(model.parameters(), lr=1e-3)\n",
+        "\n",
+        "num_epochs = 10\n",
+        "\n",
+        "for epoch in range(num_epochs):\n",
+        "    model.train()\n",
+        "    running_loss = 0.0\n",
+        "    for images, labels in train_loader:\n",
+        "        images, labels = images.to(device), labels.to(device)\n",
+        "\n",
+        "        optimizer.zero_grad()\n",
+        "        outputs = model(images)\n",
+        "        loss = criterion(outputs, labels)\n",
+        "        loss.backward()\n",
+        "        optimizer.step()\n",
+        "\n",
+        "        running_loss += loss.item()\n",
+        "\n",
+        "    print(f'Epoch {epoch+1}/{num_epochs}  Loss: {running_loss/len(train_loader):.4f}')"
+      ],
+      "id": "C7X7qm9l5NPy"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 6,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "RH5sRfra5NP0",
+        "outputId": "f2605f9b-9c02-418c-e7cb-c3e1185802c0"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Test Accuracy: 74.99%\n"
+          ]
+        }
+      ],
+      "source": [
+        "model.eval()\n",
+        "correct, total = 0, 0\n",
+        "with torch.no_grad():\n",
+        "    for images, labels in test_loader:\n",
+        "        images, labels = images.to(device), labels.to(device)\n",
+        "        outputs = model(images)\n",
+        "        _, predicted = torch.max(outputs, 1)\n",
+        "        total += labels.size(0)\n",
+        "        correct += (predicted == labels).sum().item()\n",
+        "\n",
+        "print(f'Test Accuracy: {100 * correct / total:.2f}%')"
+      ],
+      "id": "RH5sRfra5NP0"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "ofgjkWX45NP0"
+      },
+      "source": [
+        "## Part 3: CNN-Specific Logic\n",
+        "\n",
+        "### Debugging Challenge\n",
+        "\n",
+        "The buggy snippet (grayscale 28x28x1 input):\n",
+        "```python\n",
+        "self.conv1 = nn.Conv2d(1, 10, kernel_size=5, stride=1, padding=0)  # -> 24x24x10\n",
+        "self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)                 # -> 12x12x10\n",
+        "self.fc1 = nn.Linear(in_features=28*28, out_features=50)           # BUG\n",
+        "```\n",
+        "\n",
+        "The demonstration below shows exactly where the shape mismatch occurs and the fix."
+      ],
+      "id": "ofgjkWX45NP0"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 7,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "S21ZtMYY5NP0",
+        "outputId": "900db2c7-7d29-48e0-92a6-af71b49d6473"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Flattened shape entering fc1: torch.Size([4, 1440])\n",
+            "RuntimeError raised at fc1: mat1 and mat2 shapes cannot be multiplied (4x1440 and 784x50)\n"
+          ]
+        }
+      ],
+      "source": [
+        "class BuggyNet(nn.Module):\n",
+        "    def __init__(self):\n",
+        "        super().__init__()\n",
+        "        self.conv1 = nn.Conv2d(1, 10, kernel_size=5, stride=1, padding=0)\n",
+        "        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)\n",
+        "        self.fc1 = nn.Linear(in_features=28*28, out_features=50)\n",
+        "    def forward(self, x):\n",
+        "        x = self.pool1(F.relu(self.conv1(x)))\n",
+        "        x = torch.flatten(x, 1)\n",
+        "        print('Flattened shape entering fc1:', x.shape)\n",
+        "        x = self.fc1(x)\n",
+        "        return x\n",
+        "\n",
+        "buggy = BuggyNet()\n",
+        "dummy = torch.randn(4, 1, 28, 28)\n",
+        "try:\n",
+        "    buggy(dummy)\n",
+        "except RuntimeError as e:\n",
+        "    print('RuntimeError raised at fc1:', e)"
+      ],
+      "id": "S21ZtMYY5NP0"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 8,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "Q3IaUzZ35NP0",
+        "outputId": "4015b368-76ba-4479-aab0-b4007e35149f"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Correct in_features for fc1: 1440\n",
+            "torch.Size([4, 50])\n"
+          ]
+        }
+      ],
+      "source": [
+        "H_after_conv1 = (28 - 5) // 1 + 1\n",
+        "H_after_pool1 = H_after_conv1 // 2\n",
+        "correct_in_features = H_after_pool1 * H_after_pool1 * 10\n",
+        "print('Correct in_features for fc1:', correct_in_features)\n",
+        "\n",
+        "class FixedNet(nn.Module):\n",
+        "    def __init__(self):\n",
+        "        super().__init__()\n",
+        "        self.conv1 = nn.Conv2d(1, 10, kernel_size=5, stride=1, padding=0)\n",
+        "        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)\n",
+        "        self.fc1 = nn.Linear(in_features=correct_in_features, out_features=50)\n",
+        "\n",
+        "    def forward(self, x):\n",
+        "        x = self.pool1(F.relu(self.conv1(x)))\n",
+        "        x = torch.flatten(x, 1)\n",
+        "        x = self.fc1(x)\n",
+        "        return x\n",
+        "\n",
+        "fixed = FixedNet()\n",
+        "print(fixed(dummy).shape)"
+      ],
+      "id": "Q3IaUzZ35NP0"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "UtS29pyO5NP1"
+      },
+      "source": [
+        "## Part 4: Implementation Exercises"
+      ],
+      "id": "UtS29pyO5NP1"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "rnWXBzgy5NP1"
+      },
+      "source": [
+        "### 1. Parameter Calculation Code"
+      ],
+      "id": "rnWXBzgy5NP1"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 9,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "fVvCdbGw5NP1",
+        "outputId": "07a26833-c060-4ef8-9e6b-4ad56245e001"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "896\n",
+            "896\n"
+          ]
+        }
+      ],
+      "source": [
+        "def count_params(kernel_size, in_channels, out_channels):\n",
+        "    \"\"\"Total trainable parameters (weights + biases) for a standard conv layer.\"\"\"\n",
+        "    weights = kernel_size * kernel_size * in_channels * out_channels\n",
+        "    biases = out_channels\n",
+        "    return weights + biases\n",
+        "\n",
+        "print(count_params(3, 3, 32))\n",
+        "print(sum(p.numel() for p in model.conv1.parameters()))"
+      ],
+      "id": "fVvCdbGw5NP1"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "WaMmE_0l5NP1"
+      },
+      "source": [
+        "### 2. Custom Pooling Logic\n",
+        "\n",
+        "Given 4x4 input matrix:\n",
+        "```\n",
+        "[12,  20,  30,   0]\n",
+        "[ 8,  12,   2,   0]\n",
+        "[34,  70,  37,   4]\n",
+        "[112, 100, 25,  12]\n",
+        "```\n",
+        "\n",
+        "Pseudocode:\n",
+        "```\n",
+        "for i in range(0, H, stride):\n",
+        "    for j in range(0, W, stride):\n",
+        "        window = input[i : i+pool_size, j : j+pool_size]\n",
+        "        output[i/stride][j/stride] = max(window)\n",
+        "```"
+      ],
+      "id": "WaMmE_0l5NP1"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 10,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "OqY3Jxy85NP2",
+        "outputId": "e9d60eb1-8517-4c1e-c82d-79cdb49004d0"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "[[20, 30], [112, 37]]\n"
+          ]
+        }
+      ],
+      "source": [
+        "def max_pool_2x2_stride2(matrix):\n",
+        "    H, W = len(matrix), len(matrix[0])\n",
+        "    out_h, out_w = H // 2, W // 2\n",
+        "    output = [[0] * out_w for _ in range(out_h)]\n",
+        "    for i in range(0, H, 2):\n",
+        "        for j in range(0, W, 2):\n",
+        "            window = [matrix[i][j], matrix[i][j+1], matrix[i+1][j], matrix[i+1][j+1]]\n",
+        "            output[i // 2][j // 2] = max(window)\n",
+        "    return output\n",
+        "\n",
+        "input_matrix = [\n",
+        "    [12,  20,  30,  0],\n",
+        "    [ 8,  12,   2,  0],\n",
+        "    [34,  70,  37,  4],\n",
+        "    [112, 100, 25, 12],\n",
+        "]\n",
+        "\n",
+        "print(max_pool_2x2_stride2(input_matrix))"
+      ],
+      "id": "OqY3Jxy85NP2"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "97hL33Mi5NP2"
+      },
+      "source": [
+        "### 3. Layer Output Logic"
+      ],
+      "id": "97hL33Mi5NP2"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 11,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "HJEjTyfI5NP2",
+        "outputId": "212763ec-b5f8-4bef-c0ec-b2ea2c51b2d7"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "24\n",
+            "32\n"
+          ]
+        }
+      ],
+      "source": [
+        "def conv_output_size(W, K, P, S):\n",
+        "    \"\"\"Output spatial size of a convolutional layer.\n",
+        "    W: input width, K: kernel size, P: padding, S: stride.\"\"\"\n",
+        "    return math.floor((W - K + 2 * P) / S) + 1\n",
+        "\n",
+        "print(conv_output_size(28, 5, 0, 1))\n",
+        "\n",
+        "print(conv_output_size(32, 3, 1, 1))"
+      ],
+      "id": "HJEjTyfI5NP2"
+    }
+  ],
+  "metadata": {
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python",
+      "version": "3.10"
+    },
+    "colab": {
+      "provenance": [],
+      "include_colab_link": true
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
