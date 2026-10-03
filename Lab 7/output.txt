@@ -1,0 +1,3 @@
+Running Experiment 7...
+MSE (noisy vs clean):    0.09025843508133877
+MSE (denoised vs clean): 0.02244142638172474

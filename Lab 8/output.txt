@@ -1,0 +1,4 @@
+Running Experiment 8...
+CNN test accuracy: 1.0
+Extracted feature shape: (1440, 64)
+Logistic Regression accuracy on CNN features: 1.0
